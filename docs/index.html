@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Building a Distributed LLM Inference System from Scratch</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --orange: #d29922;
+      --purple: #bc8cff;
+      --red: #f85149;
+      --code-bg: #1f2937;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 16px;
+      line-height: 1.7;
+    }
+
+    header {
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 0;
+      position: sticky;
+      top: 0;
+      background: rgba(13,17,23,0.95);
+      backdrop-filter: blur(8px);
+      z-index: 10;
+    }
+
+    header nav {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 0 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    header .logo {
+      font-weight: 700;
+      font-family: monospace;
+      font-size: 1.1rem;
+      color: var(--accent);
+    }
+
+    header a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+
+    header a:hover { color: var(--text); }
+
+    .hero {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 5rem 2rem 3rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .hero .tag {
+      display: inline-block;
+      background: rgba(88,166,255,0.1);
+      color: var(--accent);
+      border: 1px solid rgba(88,166,255,0.3);
+      padding: 0.2rem 0.7rem;
+      border-radius: 2rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero h1 {
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 1.2rem;
+      letter-spacing: -0.02em;
+    }
+
+    .hero h1 span { color: var(--accent); }
+
+    .hero .subtitle {
+      font-size: 1.1rem;
+      color: var(--muted);
+      max-width: 650px;
+      margin-bottom: 2rem;
+    }
+
+    .meta {
+      display: flex;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .meta span { display: flex; align-items: center; gap: 0.4rem; }
+
+    .content {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 3rem 2rem;
+    }
+
+    h2 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin: 3rem 0 1rem;
+      color: var(--text);
+      letter-spacing: -0.01em;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+    }
+
+    h2:first-child { border-top: none; margin-top: 0; }
+
+    h3 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      margin: 2rem 0 0.6rem;
+      color: var(--accent);
+    }
+
+    p { margin-bottom: 1rem; color: #cdd9e5; }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.2rem 1.4rem;
+      overflow-x: auto;
+      margin: 1.2rem 0;
+      font-size: 0.85rem;
+      line-height: 1.6;
+    }
+
+    code {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.88em;
+    }
+
+    p code, li code {
+      background: var(--code-bg);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      color: var(--purple);
+    }
+
+    .arch-diagram {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 2rem;
+      margin: 1.5rem 0;
+      text-align: center;
+      font-family: monospace;
+      font-size: 0.9rem;
+      line-height: 2;
+    }
+
+    .arch-box {
+      display: inline-block;
+      padding: 0.4rem 1.2rem;
+      border-radius: 6px;
+      margin: 0.2rem;
+      font-weight: 600;
+    }
+
+    .box-blue { background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.3); }
+    .box-green { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+    .box-orange { background: rgba(210,153,34,0.15); color: var(--orange); border: 1px solid rgba(210,153,34,0.3); }
+    .box-purple { background: rgba(188,140,255,0.15); color: var(--purple); border: 1px solid rgba(188,140,255,0.3); }
+
+    .phases {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    .phase-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.2rem 1.4rem;
+      transition: border-color 0.2s;
+    }
+
+    .phase-card:hover { border-color: var(--accent); }
+
+    .phase-card .num {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      margin-bottom: 0.4rem;
+    }
+
+    .phase-card h4 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+
+    .phase-card p {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .benchmark {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 1.5rem 0;
+    }
+
+    .benchmark-header {
+      background: var(--code-bg);
+      padding: 0.8rem 1.4rem;
+      font-family: monospace;
+      font-size: 0.85rem;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .benchmark table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    .benchmark th {
+      text-align: left;
+      padding: 0.7rem 1.2rem;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      background: var(--code-bg);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .benchmark td {
+      padding: 0.7rem 1.2rem;
+      border-bottom: 1px solid var(--border);
+      font-family: monospace;
+    }
+
+    .benchmark tr:last-child td { border-bottom: none; }
+    .benchmark .good { color: var(--green); }
+    .benchmark .warn { color: var(--orange); }
+    .benchmark .bad { color: var(--red); }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    .stat {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.2rem;
+    }
+
+    .stat .value {
+      font-size: 2rem;
+      font-weight: 800;
+      font-family: monospace;
+      color: var(--accent);
+      line-height: 1;
+      margin-bottom: 0.4rem;
+    }
+
+    .stat .label {
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .callout {
+      background: rgba(88,166,255,0.08);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 6px 6px 0;
+      padding: 1rem 1.4rem;
+      margin: 1.2rem 0;
+    }
+
+    .callout.warn {
+      background: rgba(210,153,34,0.08);
+      border-color: var(--orange);
+    }
+
+    .callout p { margin: 0; font-size: 0.95rem; }
+
+    ul, ol { padding-left: 1.4rem; margin-bottom: 1rem; }
+    li { margin-bottom: 0.3rem; color: #cdd9e5; }
+
+    .stack-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 1rem 0;
+    }
+
+    .pill {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 2rem;
+      padding: 0.3rem 0.8rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--muted);
+    }
+
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    footer a { color: var(--accent); }
+
+    @media (max-width: 600px) {
+      .hero { padding: 3rem 1.2rem 2rem; }
+      .content { padding: 2rem 1.2rem; }
+      .stat .value { font-size: 1.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <nav>
+    <div class="logo">vhidushak</div>
+    <a href="https://github.com/ved1beta/vhidushak" target="_blank">GitHub →</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <div class="tag">ML Infrastructure</div>
+  <h1>Building a <span>Distributed LLM Inference</span> System from Scratch</h1>
+  <p class="subtitle">
+    A six-phase deep dive into production-grade LLM serving — from a single FastAPI endpoint
+    to a fully observable, horizontally scalable inference platform.
+  </p>
+  <div class="meta">
+    <span>📅 March 2026</span>
+    <span>⏱ 20 min read</span>
+    <span>🔧 FastAPI · Redis · vLLM · OpenTelemetry · Prometheus</span>
+  </div>
+</section>
+
+<div class="content">
+
+  <h2>Why This Exists</h2>
+  <p>
+    Most ML engineers know how to train models. Very few know how to serve them at scale.
+    The gap between a Jupyter notebook and a production inference system is enormous —
+    it involves queuing, distributed tracing, GPU observability, and container orchestration.
+  </p>
+  <p>
+    This project closes that gap by building a real distributed inference service in six phases,
+    each adding a production concept on top of the last. The model used is
+    <code>TinyLlama/TinyLlama-1.1B-Chat-v1.0</code> running on vLLM — small enough
+    to run on a 6GB GPU, real enough to expose every infrastructure problem.
+  </p>
+
+  <div class="stack-pills">
+    <span class="pill">FastAPI</span>
+    <span class="pill">vLLM</span>
+    <span class="pill">Redis</span>
+    <span class="pill">OpenTelemetry</span>
+    <span class="pill">Jaeger</span>
+    <span class="pill">Prometheus</span>
+    <span class="pill">Grafana</span>
+    <span class="pill">Docker / Podman</span>
+    <span class="pill">TinyLlama 1.1B</span>
+  </div>
+
+  <h2>Architecture</h2>
+  <p>The final system has five independently scalable components:</p>
+
+  <div class="arch-diagram">
+    <div><span class="arch-box box-blue">Client</span></div>
+    <div>↓</div>
+    <div><span class="arch-box box-blue">FastAPI Gateway :8000</span></div>
+    <div>↓ &nbsp; emit traces + metrics</div>
+    <div><span class="arch-box box-green">Redis Job Queue :6379</span></div>
+    <div>↓</div>
+    <div><span class="arch-box box-blue">Worker Pool :8002</span></div>
+    <div>↓ &nbsp; emit traces + GPU metrics</div>
+    <div><span class="arch-box box-orange">vLLM Runtime :8001</span></div>
+    <div>↓</div>
+    <div><span class="arch-box box-orange">GPU</span></div>
+    <br>
+    <div>
+      <span class="arch-box box-purple">Jaeger :16686</span>
+      <span class="arch-box box-purple">Prometheus :9090</span>
+      <span class="arch-box box-purple">Grafana :3000</span>
+    </div>
+  </div>
+
+  <p>
+    The key insight: the API gateway <em>never waits</em> for inference.
+    It pushes a job to Redis and returns a <code>request_id</code> in milliseconds.
+    Workers pull from the queue independently — add more workers, get more throughput.
+  </p>
+
+  <h2>The Six Phases</h2>
+
+  <div class="phases">
+    <div class="phase-card">
+      <div class="num">Phase 1</div>
+      <h4>Basic Inference Server</h4>
+      <p>Single FastAPI endpoint proxying to vLLM. Chat template formatting, latency logging, request IDs.</p>
+    </div>
+    <div class="phase-card">
+      <div class="num">Phase 2</div>
+      <h4>Queue Architecture</h4>
+      <p>Redis decouples API from GPU. Producer-consumer pattern. Result polling. Horizontal worker scaling.</p>
+    </div>
+    <div class="phase-card">
+      <div class="num">Phase 3</div>
+      <h4>Distributed Tracing</h4>
+      <p>OpenTelemetry spans across API → queue → worker → vLLM. Exported to Jaeger over OTLP.</p>
+    </div>
+    <div class="phase-card">
+      <div class="num">Phase 4</div>
+      <h4>Metrics & Monitoring</h4>
+      <p>Prometheus counters and histograms. p50/p95/p99 latency. Requests/sec. Grafana dashboards.</p>
+    </div>
+    <div class="phase-card">
+      <div class="num">Phase 5</div>
+      <h4>GPU Observability</h4>
+      <p>nvidia-smi polling for GPU utilization and VRAM. Token throughput extracted from vLLM usage stats.</p>
+    </div>
+    <div class="phase-card">
+      <div class="num">Phase 6</div>
+      <h4>Production Deployment</h4>
+      <p>Docker Compose with all services. Horizontal worker scaling. Prometheus scrape config. Grafana wired up.</p>
+    </div>
+  </div>
+
+  <h2>Phase 1 — The Model Server</h2>
+  <p>
+    The starting point is a single FastAPI app that wraps vLLM's OpenAI-compatible API.
+    The critical detail: TinyLlama is a <em>chat</em> model, so raw prompts produce
+    incoherent output. The fix is wrapping every prompt in the model's chat template:
+  </p>
+  <pre><code>formatted = (
+    f"&lt;|system|&gt;\nYou are a helpful assistant.&lt;/s&gt;\n"
+    f"&lt;|user|&gt;\n{prompt}&lt;/s&gt;\n"
+    f"&lt;|assistant|&gt;\n"
+)</code></pre>
+  <p>
+    Without this, "Explain transformers" produces content about fashion brands.
+    With it, you get actual ML explanations. This is the most common mistake when
+    deploying instruction-tuned models.
+  </p>
+
+  <h2>Phase 2 — Decoupling with Redis</h2>
+  <p>
+    A direct API-to-GPU pipeline has a fatal flaw: when the GPU is busy, requests queue
+    inside the web server, blocking threads. Under load, the server becomes unresponsive.
+  </p>
+  <p>
+    The fix is a queue. The API returns immediately with a job ID. Workers pull from Redis
+    using <code>blpop</code> (blocking pop — no polling loop needed). Clients poll
+    <code>/result/{id}</code> until the response is ready.
+  </p>
+  <pre><code># API — returns in ~5ms
+POST /generate?prompt=...
+→ {"status": "queued", "request_id": "abc-123"}
+
+# Client polls
+GET /result/abc-123
+→ {"status": "processing"}   # GPU still working
+→ {"choices": [...]}         # done</code></pre>
+
+  <div class="callout">
+    <p>
+      <strong>Scaling insight:</strong> running three workers instead of one triples throughput
+      with zero code changes. Jobs distribute automatically because <code>blpop</code> is atomic —
+      only one worker claims each job.
+    </p>
+  </div>
+
+  <h2>Phase 3 — Distributed Tracing</h2>
+  <p>
+    Logs tell you what happened. Traces tell you <em>where time was spent</em> across services.
+    Each request produces a tree of spans:
+  </p>
+  <pre><code>api_request                          3ms
+worker_process                      │
+  queue_wait_ms = 41ms              │
+  └── model_inference             118ms
+                              ─────────
+                              total: 162ms</code></pre>
+  <p>
+    This immediately shows the GPU is the bottleneck, not the queue or network.
+    OpenTelemetry is used instead of the deprecated Jaeger Thrift exporter —
+    OTLP is the modern wire protocol, compatible with Jaeger, Tempo, and every major backend.
+  </p>
+
+  <h2>Phase 4 & 5 — Metrics and GPU Observability</h2>
+  <p>
+    Tracing answers "why was request X slow?" Metrics answer "is the system healthy overall?"
+  </p>
+  <p>Prometheus metrics exposed:</p>
+  <ul>
+    <li><code>inference_requests_total</code> — counter, tracks volume</li>
+    <li><code>inference_queue_wait_seconds</code> — histogram, detects congestion</li>
+    <li><code>inference_latency_seconds</code> — histogram, GPU speed</li>
+    <li><code>inference_tokens_per_second</code> — histogram, generation throughput</li>
+    <li><code>gpu_utilization_percent</code> — gauge, from nvidia-smi</li>
+    <li><code>gpu_memory_used_mb</code> — gauge, VRAM tracking</li>
+  </ul>
+  <p>
+    GPU metrics are polled every 15 seconds in a background daemon thread inside the worker,
+    keeping the inference loop unblocked.
+  </p>
+
+  <h2>Benchmark Results</h2>
+  <p>
+    Load test: 10 requests, 4 concurrent workers submitting, 1 inference worker.
+    Model: TinyLlama 1.1B on a 6GB GPU.
+  </p>
+
+  <div class="stat-grid">
+    <div class="stat">
+      <div class="value">10/10</div>
+      <div class="label">Success rate</div>
+    </div>
+    <div class="stat">
+      <div class="value">2.4ms</div>
+      <div class="label">Submit latency p50</div>
+    </div>
+    <div class="stat">
+      <div class="value">0.54</div>
+      <div class="label">Requests / sec</div>
+    </div>
+    <div class="stat">
+      <div class="value">69.8</div>
+      <div class="label">Tokens / sec</div>
+    </div>
+  </div>
+
+  <div class="benchmark">
+    <div class="benchmark-header">10 requests · concurrency=4 · 1 worker</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>Value</th>
+          <th>Signal</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Submit latency p50</td>
+          <td class="good">2.4ms</td>
+          <td>API + Redis overhead is negligible</td>
+        </tr>
+        <tr>
+          <td>E2E latency p50</td>
+          <td class="warn">7,039ms</td>
+          <td>GPU queuing under concurrent load</td>
+        </tr>
+        <tr>
+          <td>E2E latency max</td>
+          <td class="bad">11,062ms</td>
+          <td>Queue congestion — 1 worker, 4 submitters</td>
+        </tr>
+        <tr>
+          <td>Throughput</td>
+          <td class="warn">0.54 req/s</td>
+          <td>Bottleneck: single worker + 1.1B model</td>
+        </tr>
+        <tr>
+          <td>Tokens / sec</td>
+          <td class="warn">69.8</td>
+          <td>Low batch size, small GPU (6GB)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout warn">
+    <p>
+      <strong>Observed bottleneck:</strong> p50 E2E latency (7s) vs submit latency (2.4ms)
+      shows the queue is working correctly — the API is fast, the GPU is the constraint.
+      Adding a second worker would cut p50 latency roughly in half.
+    </p>
+  </div>
+
+  <h2>What This Teaches</h2>
+  <p>These six phases cover the core skills of ML infrastructure engineering:</p>
+  <ul>
+    <li><strong>Producer-consumer systems</strong> — Redis queue, async job dispatch</li>
+    <li><strong>Distributed tracing</strong> — OpenTelemetry, span propagation, OTLP</li>
+    <li><strong>Metrics engineering</strong> — counters, histograms, PromQL, Grafana</li>
+    <li><strong>GPU observability</strong> — utilization, VRAM, token throughput</li>
+    <li><strong>Container orchestration</strong> — Docker Compose, horizontal scaling</li>
+    <li><strong>LLM serving specifics</strong> — chat templates, KV cache, continuous batching</li>
+  </ul>
+  <p>
+    These are exactly the skills worked on at companies building LLM infrastructure —
+    NVIDIA, OpenAI, Databricks, and any team running models in production.
+  </p>
+
+  <h2>Running It</h2>
+  <pre><code># Install
+python -m venv venv && source venv/bin/activate
+pip install fastapi uvicorn redis requests \
+  opentelemetry-api opentelemetry-sdk \
+  opentelemetry-exporter-otlp-proto-grpc \
+  prometheus-client vllm
+
+# Start vLLM (requires GPU)
+python -m vllm.entrypoints.openai.api_server \
+  --model TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
+  --port 8001 --gpu-memory-utilization 0.7 --max-num-seqs 32
+
+# Start infrastructure
+redis-server
+docker run -d -p 16686:16686 -p 4317:4317 docker.io/jaegertracing/all-in-one
+
+# Start API + worker
+uvicorn src.inference_systems.api.server:app --port 8000
+python src/inference_systems/workers/worker.py
+
+# Benchmark
+python scripts/benchmark.py --total 20 --concurrency 4</code></pre>
+
+  <div class="callout">
+    <p>
+      <strong>Or run everything at once:</strong> <code>docker compose up -d</code>
+      (vLLM excluded — GPU passthrough varies by runtime).
+    </p>
+  </div>
+
+</div>
+
+<footer>
+  <p>
+    Built by <a href="https://github.com/ved1beta" target="_blank">ved1beta</a> ·
+    <a href="https://github.com/ved1beta/vhidushak" target="_blank">Source on GitHub</a>
+  </p>
+</footer>
+
+</body>
+</html>
